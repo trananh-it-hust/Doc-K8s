@@ -1,7 +1,7 @@
 ## Mục Lục
 
-[I. CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)](#i-cài-đặt-cụm-k8s-trên-nhiều-node-với-load-balancer)
-[II. CÀI ĐẶT CONTROL PLANE KUBERNETES DASHBOARD ](#ii-cài-đặt-control-plane-kubernetes-dashboard)
+[I. CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)](#i-cài-đặt-cụm-k8s-trên-nhiều-node-với-load-balancer)  
+[II. CÀI ĐẶT CONTROL PLANE KUBERNETES DASHBOARD](#ii-cài-đặt-control-plane-kubernetes-dashboard)
 
 # I. CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)
 
@@ -209,74 +209,129 @@ sudo rm -rf /etc/kubernetes/manifests/*
 
 # II. CÀI ĐẶT CONTROL PLANE KUBERNETES DASHBOARD
 
-## 1. Cài đặt Kubernetes Dashboard
-
-### Áp dụng YAML của Kubernetes Dashboard
+## 1. Thêm Helm Repository và Cài Đặt Dashboard
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
-```
+helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+helm repo update
 
-### Kiểm tra trạng thái Pod
-
-```bash
-kubectl -n kubernetes-dashboard get pods
+helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+  --create-namespace --namespace kubernetes-dashboard
 ```
 
 ---
 
-## 2. Tạo Service Account và Role Binding
-
-### Tạo Service Account
+## 2. Expose Dashboard Service ra ngoài bằng NodePort
 
 ```bash
-kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard
-```
-
-### Tạo Role Binding
-
-```bash
-kubectl create clusterrolebinding dashboard-admin-binding \
-    --clusterrole=cluster-admin \
-    --serviceaccount=kubernetes-dashboard:dashboard-admin
+kubectl expose deployment kubernetes-dashboard \
+  --name k8s-dash-svc \
+  --type NodePort \
+  --port 443 \
+  --target-port 8443 \
+  -n kubernetes-dashboard
 ```
 
 ---
 
-## 3. Lấy Token để truy cập Dashboard
+## 3. Kiểm Tra Dashboard Đã Chạy
 
 ```bash
-kubectl -n kubernetes-dashboard create token dashboard-admin
+kubectl get pods,svc -n kubernetes-dashboard
 ```
+
+> 📌 Ghi lại NodePort được hiển thị trong kết quả (ví dụ: `31000`).
 
 ---
 
-## 4. Truy cập Kubernetes Dashboard
+## 4. Cấu Hình Load Balancer với NGINX
 
-### Chạy lệnh port-forward
+### Cập nhật NGINX (trên Load Balancer):
+
+**Thêm nội dung sau vào `/etc/nginx/conf.d` hoặc `/etc/nginx/k8s-lb.d/apiserver.conf`:**
+
+```nginx
+upstream dashboard_nodes {
+    server 172.26.0.68:31000 max_fails=3 fail_timeout=30s;
+    server 172.26.15.240:31000 max_fails=3 fail_timeout=30s;
+    server 172.26.13.162:31000 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 31000;
+
+    location / {
+        proxy_pass https://dashboard_nodes;
+        proxy_ssl_verify off;
+    }
+}
+```
+
+> 📌 Thay `31000` bằng NodePort bạn đã thấy ở bước trên nếu khác.
+
+### Khởi động lại NGINX:
 
 ```bash
-kubectl proxy
-```
-
-### Truy cập Dashboard qua trình duyệt
-
-Mở trình duyệt và truy cập:
-
-```
-http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
 ---
 
-## 5. Đăng nhập vào Dashboard
+## 5. Truy Cập Dashboard
 
-- Sử dụng Token đã lấy ở bước trên để đăng nhập.
-- Sau khi đăng nhập, bạn có thể quản lý cluster qua giao diện Dashboard.
+Mở trình duyệt:
+
+```
+https://<IP_LoadBalancer>:31000
+```
 
 ---
 
-## ⚠️ Lưu ý
+## 6. Tạo Admin User Cho Dashboard
 
-- Đảm bảo rằng bạn đã mở cổng cần thiết nếu truy cập từ xa.
-- Không sử dụng quyền `cluster-admin` trong môi trường production.
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kubernetes-dashboard
+EOF
+```
+
+---
+
+## 7. Lấy Token Đăng Nhập Dashboard
+
+```bash
+kubectl -n kubernetes-dashboard create token admin-user
+```
+
+Copy token này và sử dụng để đăng nhập vào Dashboard.
+
+---
+
+## ✅ Kết Quả Mong Đợi
+
+Khi truy cập `https://<LoadBalancer-IP>:31000`, nếu hiện ra giao diện đăng nhập Kubernetes Dashboard, bạn đã cấu hình thành công 🎉
+
+---
+
+## 📌 Ghi chú
+
+- Đảm bảo cổng `31000` đã được mở trên firewall/NACL/Security Group của Load Balancer.
+- Nếu có nhiều master node, nên cấu hình HA hoặc Keepalived cho NGINX nếu cần tính sẵn sàng cao.
