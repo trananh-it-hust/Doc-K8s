@@ -1,4 +1,9 @@
-# CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)
+## Mục Lục
+
+[I. CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)](#i-cài-đặt-cụm-k8s-trên-nhiều-node-với-load-balancer)
+[II. CÀI ĐẶT CONTROL PLANE KUBERNETES DASHBOARD ](#ii-cài-đặt-control-plane-kubernetes-dashboard)
+
+# I. CÀI ĐẶT CỤM K8S TRÊN NHIỀU NODE (VỚi LOAD BALANCER)
 
 ## 1. Cài đặt Load Balancer (Nginx)
 
@@ -201,3 +206,77 @@ sudo rm -rf /etc/kubernetes/manifests/*
 
 - [Video 1 - Cài đặt K8s](https://www.youtube.com/watch?v=xvVZCt5QR7k)
 - [Video 2 - Cài đặt K8s chi tiết](https://www.youtube.com/watch?v=AGyGyzYPEjA)
+
+# II. CÀI ĐẶT CONTROL PLANE KUBERNETES DASHBOARD
+
+## 1. Cài đặt Kubernetes Dashboard
+
+### Áp dụng YAML của Kubernetes Dashboard
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+```
+
+### Kiểm tra trạng thái Pod
+
+```bash
+kubectl -n kubernetes-dashboard get pods
+```
+
+---
+
+## 2. Tạo Service Account và Role Binding
+
+### Tạo Service Account
+
+```bash
+kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard
+```
+
+### Tạo Role Binding
+
+```bash
+kubectl create clusterrolebinding dashboard-admin-binding \
+    --clusterrole=cluster-admin \
+    --serviceaccount=kubernetes-dashboard:dashboard-admin
+```
+
+---
+
+## 3. Lấy Token để truy cập Dashboard
+
+```bash
+kubectl -n kubernetes-dashboard create token dashboard-admin
+```
+
+---
+
+## 4. Truy cập Kubernetes Dashboard
+
+### Chạy lệnh port-forward
+
+```bash
+kubectl proxy
+```
+
+### Truy cập Dashboard qua trình duyệt
+
+Mở trình duyệt và truy cập:
+
+```
+http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+
+---
+
+## 5. Đăng nhập vào Dashboard
+
+- Sử dụng Token đã lấy ở bước trên để đăng nhập.
+- Sau khi đăng nhập, bạn có thể quản lý cluster qua giao diện Dashboard.
+
+---
+
+## ⚠️ Lưu ý
+
+- Đảm bảo rằng bạn đã mở cổng cần thiết nếu truy cập từ xa.
+- Không sử dụng quyền `cluster-admin` trong môi trường production.
